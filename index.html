@@ -49,11 +49,10 @@
       <h2>Panel lotu</h2>
     </header>
     <dl>
-      <dt>lot</dt><dd id="flightAircraft">FLI453</dd>
-      <dt>linia lotnicza</dt><dd id="flightAirline">-</dd>
+      <dt>lot</dt><dd id="flightAircraft">MLM712</dd>
       <dt>status</dt><dd id="flightStatus">ładowanie</dd>
-      <dt>rzeczywisty odlot</dt><dd id="flightDepActual">-</dd>
-      <dt>szacowany przylot</dt><dd id="flightArrEstimated">-</dd>
+      <dt>prędkość w powietrzu</dt><dd id="flightAirSpeed">-</dd>
+      <dt>wysokość lotu</dt><dd id="flightAltitude">-</dd>
       <dt>ostatnia pozycja</dt><dd id="flightPosition">-</dd>
       <dt>ostatnia aktualizacja</dt><dd id="flightUpdated">-</dd>
     </dl>
@@ -84,15 +83,14 @@
 </main>
 
 <script>
-const TRACKED_FLIGHT = 'FLI453';
+const TRACKED_FLIGHT = 'MLM712';
 const WEATHER_STATION = 'EKVG';
 
 const banner = document.getElementById('banner');
 const flightAircraft = document.getElementById('flightAircraft');
-const flightAirline = document.getElementById('flightAirline');
 const flightStatus = document.getElementById('flightStatus');
-const flightDepActual = document.getElementById('flightDepActual');
-const flightArrEstimated = document.getElementById('flightArrEstimated');
+const flightAirSpeed = document.getElementById('flightAirSpeed');
+const flightAltitude = document.getElementById('flightAltitude');
 const flightPosition = document.getElementById('flightPosition');
 const flightUpdated = document.getElementById('flightUpdated');
 const flightRaw = document.getElementById('flightRaw');
@@ -178,12 +176,11 @@ function parseCeiling(weather){
 async function refreshFlight(){
   flightAircraft.textContent = TRACKED_FLIGHT;
 
-  const result = await fetchJson('/api/flight?flight_icao='+encodeURIComponent(TRACKED_FLIGHT));
+  const result = await fetchJson('/api/flight?callsign='+encodeURIComponent(TRACKED_FLIGHT));
   if(result.error){
     flightStatus.textContent = 'nieznany';
-    flightAirline.textContent = '-';
-    flightDepActual.textContent = '-';
-    flightArrEstimated.textContent = '-';
+    flightAirSpeed.textContent = '-';
+    flightAltitude.textContent = '-';
     flightPosition.textContent = '-';
     flightUpdated.textContent = formatTime(Date.now());
     flightRaw.hidden = false;
@@ -195,10 +192,9 @@ async function refreshFlight(){
   const flight = result.data || {};
   const airborne = String(flight.status || '').toLowerCase() === 'en-route';
   flightAircraft.textContent = flight.flightIcao || flight.callsign || TRACKED_FLIGHT;
-  flightAirline.textContent = formatText(flight.airlineName);
   flightStatus.textContent = translateFlightStatus(flight.status);
-  flightDepActual.textContent = formatText(flight.depActual);
-  flightArrEstimated.textContent = formatText(flight.arrEstimated);
+  flightAirSpeed.textContent = formatNumber(flight.airSpeed ?? flight.groundSpeed, 'kt');
+  flightAltitude.textContent = formatNumber(flight.altitude, 'ft');
   flightPosition.textContent = flight.lat && flight.lon ? `${flight.lat}, ${flight.lon}` : '-';
   flightUpdated.textContent = formatTime(flight.ts || Date.now());
   flightRaw.hidden = true;
