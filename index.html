@@ -132,6 +132,7 @@ function translateFlightStatus(status){
   if(normalized === 'scheduled') return 'zaplanowany';
   if(normalized === 'landed') return 'wylądował';
   if(normalized === 'cancelled' || normalized === 'canceled') return 'odwołany';
+  if(normalized === 'not-tracked') return 'brak sygnału ADS-B';
   if(normalized === 'unknown' || !normalized) return 'nieznany';
   return status;
 }
@@ -206,6 +207,8 @@ async function refreshFlight(){
 
   if(airborne) {
     setBanner('green', 'W POWIETRZU - KIERUNEK VÁGAR');
+  } else if(flight.status === 'not-tracked') {
+    setBanner('yellow', 'BRAK AKTYWNEGO SYGNAŁU ADS-B');
   } else {
     setBanner('yellow', 'SAMOLOT DRUŻYNY: NA ZIEMI W BERGEN');
   }

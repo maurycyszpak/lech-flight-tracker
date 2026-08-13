@@ -7,9 +7,10 @@ const CDN_CACHE_CONTROL = `public, max-age=${CACHE_TTL / 1000}, stale-while-reva
 let cache = { ts: 0, callsign: null, data: null };
 let pendingFetch = null;
 
-const API_ENDPOINT = process.env.ADSBFI_API_URL || 'https://opendata.adsb.fi/api/v2/callsign/{callsign}';
+const API_ENDPOINT = process.env.OPENSKY_API_URL || 'https://opensky-network.org/api/states/all';
 const API_METHOD = 'GET';
-const DEFAULT_CALLSIGN = process.env.ADSBFI_CALLSIGN || 'MLM712';
+const DEFAULT_CALLSIGN = process.env.OPENSKY_CALLSIGN || process.env.ADSBFI_CALLSIGN || 'MLM712';
+const DEFAULT_ICAO24 = process.env.OPENSKY_ICAO24 || '4d2162';
 
 function getCallsign(req) {
   const requestUrl = new URL(req.url, 'http://localhost');
@@ -22,27 +23,16 @@ function getCallsign(req) {
   return callsign;
 }
 
-function getUpstreamUrl(callsign) {
-  if(API_ENDPOINT.includes('{callsign}')) {
-    return API_ENDPOINT.replace('{callsign}', encodeURIComponent(callsign));
-  }
-  return `${API_ENDPOINT.replace(/\/$/, '')}/${encodeURIComponent(callsign)}`;
-}
-
-function isAirborne(aircraft) {
-  return aircraft.alt_baro !== 'ground' && aircraft.alt_geom !== 'ground' &&
-    (Number(aircraft.alt_baro) > 0 || Number(aircraft.alt_geom) > 0 || Number(aircraft.gs) > 30);
-}
-
-async function fetchFlightFromAdsbFi(callsign) {
-  const upstreamUrl = getUpstreamUrl(callsign);
-  console.log(`[flight api] ${API_METHOD} ${upstreamUrl}`);
+async function fetchFlightFromOpenSky(callsign) {
+  const upstreamUrl = new URL(API_ENDPOINT);
+  upstreamUrl.searchParams.set('icao24', DEFAULT_ICAO24);
+  console.log(`[flight api] ${API_METHOD} ${upstreamUrl.href}`);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   let response;
   try {
-    response = await fetch(upstreamUrl, {
+    response = await fetch(upstreamUrl.href, {
       method: API_METHOD,
       headers: {
         'Accept': 'application/json',
@@ -55,41 +45,68 @@ async function fetchFlightFromAdsbFi(callsign) {
   }
 
   console.log(`[flight api] upstream response ${response.status} ${response.statusText || ''}`.trim());
-  if(!response.ok) throw new Error(`upstream ${response.status} for ${upstreamUrl}`);
+  if(!response.ok) throw new Error(`upstream ${response.status} for ${upstreamUrl.href}`);
 
   const upstream = await response.json();
-  const aircraft = Array.isArray(upstream.ac)
-    ? upstream.ac.find(item => String(item.flight || '').trim().toUpperCase() === callsign) || upstream.ac[0]
-    : null;
-  if(!aircraft) throw new Error(`no aircraft returned for ${callsign}`);
+  const state = Array.isArray(upstream.states) ? upstream.states[0] : null;
 
-  const seenSeconds = Number(aircraft.seen_pos ?? aircraft.seen);
-  const upstreamTimestamp = Number(upstream.now);
-  const updatedAt = Number.isFinite(upstreamTimestamp)
-    ? upstreamTimestamp - (Number.isFinite(seenSeconds) ? seenSeconds * 1000 : 0)
-    : Date.now();
+  if(!state) {
+    const upstreamTimestamp = Number(upstream.time);
+    const checkedAt = Number.isFinite(upstreamTimestamp) ? upstreamTimestamp * 1000 : Date.now();
+    const out = {
+      callsign,
+      flightIcao: callsign,
+      aircraft: null,
+      aircraftType: null,
+      aircraftDescription: null,
+      lat: null,
+      lon: null,
+      altitude: null,
+      airSpeed: null,
+      airSpeedType: null,
+      groundSpeed: null,
+      track: null,
+      status: 'not-tracked',
+      tracked: false,
+      updated: checkedAt,
+      ts: checkedAt
+    };
+    cache = { ts: Date.now(), callsign, data: out };
+    console.log(`[flight api] OpenSky has no active signal for ${callsign} (${DEFAULT_ICAO24})`);
+    return out;
+  }
+
+  const callsignFromApi = String(state[1] || callsign).trim();
+  const lastContact = Number(state[4]);
+  const updatedAt = Number.isFinite(lastContact) ? lastContact * 1000 : Date.now();
+  const altitudeMeters = Number(state[7] ?? state[13]);
+  const velocityMetersPerSecond = Number(state[9]);
+  const groundSpeedKnots = Number.isFinite(velocityMetersPerSecond)
+    ? Math.round(velocityMetersPerSecond * 1.943844 * 10) / 10
+    : null;
 
   const out = {
-    callsign: String(aircraft.flight || callsign).trim(),
-    flightIcao: String(aircraft.flight || callsign).trim(),
-    aircraft: aircraft.r || null,
-    aircraftType: aircraft.t || null,
-    aircraftDescription: aircraft.desc || null,
-    lat: aircraft.lat ?? null,
-    lon: aircraft.lon ?? null,
-    altitude: typeof aircraft.alt_baro === 'number' ? aircraft.alt_baro : null,
-    // TAS/IAS are optional in ADSB.fi; GS is the consistently available fallback.
-    airSpeed: aircraft.tas ?? aircraft.ias ?? aircraft.gs ?? null,
-    airSpeedType: aircraft.tas != null ? 'TAS' : aircraft.ias != null ? 'IAS' : aircraft.gs != null ? 'GS' : null,
-    groundSpeed: aircraft.gs ?? null,
-    track: aircraft.track ?? null,
-    status: isAirborne(aircraft) ? 'en-route' : 'unknown',
+    callsign: callsignFromApi,
+    flightIcao: callsignFromApi,
+    aircraft: null,
+    aircraftType: null,
+    aircraftDescription: null,
+    lat: state[6] ?? null,
+    lon: state[5] ?? null,
+    altitude: Number.isFinite(altitudeMeters) ? Math.round(altitudeMeters * 3.28084) : null,
+    airSpeed: groundSpeedKnots,
+    airSpeedType: groundSpeedKnots != null ? 'GS' : null,
+    groundSpeed: groundSpeedKnots,
+    track: state[10] ?? null,
+    status: state[8] === false ? 'en-route' : 'unknown',
+    tracked: true,
+    source: 'OpenSky Network',
     updated: updatedAt,
     ts: updatedAt
   };
 
   cache = { ts: Date.now(), callsign, data: out };
-  console.log('[flight api] mapped ADSB.fi response', out);
+  console.log('[flight api] mapped OpenSky response', out);
   return out;
 }
 
@@ -114,7 +131,7 @@ module.exports = async (req, res) => {
 
   try {
     if(!pendingFetch || pendingFetch.callsign !== callsign) {
-      const promise = fetchFlightFromAdsbFi(callsign).finally(() => {
+      const promise = fetchFlightFromOpenSky(callsign).finally(() => {
         if(pendingFetch && pendingFetch.promise === promise) pendingFetch = null;
       });
       pendingFetch = { callsign, promise };
