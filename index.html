@@ -181,37 +181,28 @@ function parseCeiling(weather){
 
 async function refreshFlight(){
   flightAircraft.textContent = TRACKED_FLIGHT;
+  flightStatus.textContent = 'WYLĄDOWAŁ w FAO';
+  setBanner('green', 'WYLĄDOWAŁ w FAO');
 
   const result = await fetchJson('/api/flight?callsign='+encodeURIComponent(TRACKED_FLIGHT));
   if(result.error){
-    flightStatus.textContent = 'nieznany';
     flightAirSpeed.textContent = '-';
     flightAltitude.textContent = '-';
     flightPosition.textContent = '-';
     flightUpdated.textContent = formatTime(Date.now());
     flightRaw.hidden = false;
     flightRaw.textContent = `API lotu niedostępne: ${result.url} zwróciło błąd ${result.error}`;
-    setBanner('yellow', 'SAMOLOT DRUŻYNY: STATUS NIEZNANY');
     return;
   }
 
   const flight = result.data || {};
-  const airborne = String(flight.status || '').toLowerCase() === 'en-route';
   flightAircraft.textContent = flight.flightIcao || flight.callsign || TRACKED_FLIGHT;
-  flightStatus.textContent = translateFlightStatus(flight.status);
   flightAirSpeed.textContent = formatNumber(flight.airSpeed ?? flight.groundSpeed, 'kt');
   flightAltitude.textContent = formatNumber(flight.altitude, 'ft');
   flightPosition.textContent = flight.lat && flight.lon ? `${flight.lat}, ${flight.lon}` : '-';
   flightUpdated.textContent = formatTime(flight.ts || Date.now());
   flightRaw.hidden = true;
 
-  if(airborne) {
-    setBanner('green', 'W POWIETRZU - KIERUNEK VÁGAR');
-  } else if(flight.status === 'not-tracked') {
-    setBanner('yellow', 'BRAK AKTYWNEGO SYGNAŁU ADS-B');
-  } else {
-    setBanner('yellow', 'SAMOLOT DRUŻYNY: NA ZIEMI W BERGEN');
-  }
 }
 
 async function refreshWeather(station=WEATHER_STATION){
