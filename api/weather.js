@@ -10,7 +10,8 @@ const API_HEADERS = {
 
 const CACHE_TTL = 5 * 60 * 1000;
 const STALE_WHILE_REVALIDATE = 10 * 60 * 1000;
-const CACHE_CONTROL = `public, s-maxage=${CACHE_TTL / 1000}, stale-while-revalidate=${STALE_WHILE_REVALIDATE / 1000}`;
+const BROWSER_CACHE_TTL = 5 * 60;
+const CDN_CACHE_CONTROL = `public, max-age=${CACHE_TTL / 1000}, stale-while-revalidate=${STALE_WHILE_REVALIDATE / 1000}`;
 let cache = {}; // per station
 let pendingFetch = {}; // per station
 
@@ -61,7 +62,10 @@ async function fetchMetar(station, upstream) {
 }
 
 module.exports = async (req, res) => {
-  res.setHeader('Cache-Control', CACHE_CONTROL);
+  // METAR is shared and non-personalized, so Vercel can serve one cached result
+  // to every visitor in a region without invoking this function again.
+  res.setHeader('Cache-Control', `public, max-age=${BROWSER_CACHE_TTL}`);
+  res.setHeader('Vercel-CDN-Cache-Control', CDN_CACHE_CONTROL);
 
   const requestUrl = new URL(req.url, 'http://localhost');
   const station = (requestUrl.searchParams.get('station') || 'EKVG').toUpperCase();

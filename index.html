@@ -32,6 +32,7 @@
   pre{white-space:pre-wrap;background:#f7f7f7;padding:10px;border-radius:6px;overflow:auto;margin:8px 0 0}
   .small{font-size:13px;color:var(--muted)}
   .metar-label{margin-top:14px}
+  .flight-map-link{display:block;margin:12px 0;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:#175cd3;font-weight:700;text-align:center}
   .webcam img{display:block;width:100%;height:auto;border-radius:6px}
   @media (max-width:640px){
     main{padding:4px}
@@ -72,6 +73,10 @@
     <div class="small metar-label">Surowy METAR</div>
     <pre id="metarRaw">Ładowanie METAR...</pre>
   </section>
+
+  <a class="flight-map-link" href="https://www.flightradar24.com/MLM712/41272dcc" target="_blank" rel="noopener noreferrer">
+    Otwórz lot MLM712 w Flightradar24
+  </a>
 
   <section class="card webcam">
     <header class="card-title">

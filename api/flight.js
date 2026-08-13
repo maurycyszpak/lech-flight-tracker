@@ -1,7 +1,8 @@
 const fetch = globalThis.fetch || ((...args) => import('node-fetch').then(m => m.default(...args)));
-const CACHE_TTL = 15000;
-const STALE_WHILE_REVALIDATE = 30000;
-const CACHE_CONTROL = `public, s-maxage=${CACHE_TTL / 1000}, stale-while-revalidate=${STALE_WHILE_REVALIDATE / 1000}`;
+const CACHE_TTL = 2 * 60 * 1000;
+const STALE_WHILE_REVALIDATE = 5 * 60 * 1000;
+const BROWSER_CACHE_TTL = 60;
+const CDN_CACHE_CONTROL = `public, max-age=${CACHE_TTL / 1000}, stale-while-revalidate=${STALE_WHILE_REVALIDATE / 1000}`;
 
 let cache = { ts: 0, callsign: null, data: null };
 let pendingFetch = null;
@@ -93,7 +94,10 @@ async function fetchFlightFromAdsbFi(callsign) {
 }
 
 module.exports = async (req, res) => {
-  res.setHeader('Cache-Control', CACHE_CONTROL);
+  // Browser cache reduces repeat calls per visitor. The Vercel-specific header
+  // creates one shared CDN response for all visitors in a region.
+  res.setHeader('Cache-Control', `public, max-age=${BROWSER_CACHE_TTL}`);
+  res.setHeader('Vercel-CDN-Cache-Control', CDN_CACHE_CONTROL);
 
   let callsign;
   try {
