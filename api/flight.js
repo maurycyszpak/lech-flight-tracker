@@ -8,7 +8,7 @@ let pendingFetch = null;
 
 const API_ENDPOINT = process.env.AIRLABS_API_URL || 'https://airlabs.co/api/v9/flight';
 const API_METHOD = 'GET';
-const DEFAULT_FLIGHT_ICAO = process.env.AIRLABS_FLIGHT_ICAO || 'FLI453';
+const DEFAULT_FLIGHT_ICAO = process.env.AIRLABS_FLIGHT_ICAO || 'CFG080';
 
 function pickFlightDebug(f) {
   return {
