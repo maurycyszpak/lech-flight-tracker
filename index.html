@@ -1,0 +1,247 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Lech - Wyspy Owcze live</title>
+<style>
+  :root{
+    --bg:#f4f6f8;
+    --card:#fff;
+    --text:#111827;
+    --muted:#667085;
+    --border:#d8dee6;
+    --green:#16794c;
+    --yellow:#b7791f;
+    --red:#b42318;
+  }
+  *{box-sizing:border-box}
+  body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:var(--bg);color:var(--text)}
+  main{width:min(1120px,100%);margin:0 auto;padding:14px}
+  .banner{padding:22px 24px;border-radius:8px;margin-bottom:12px;color:#fff;font-weight:800;font-size:clamp(28px,5vw,56px);line-height:1.05;letter-spacing:0;text-transform:uppercase}
+  .banner.red{background:var(--red)}
+  .banner.yellow{background:var(--yellow)}
+  .banner.green{background:var(--green)}
+  .card{padding:16px;border:1px solid var(--border);border-radius:8px;background:var(--card)}
+  .card + .card{margin-top:12px}
+  .card-title{border-bottom:1px solid var(--border);margin:-2px 0 14px;padding-bottom:10px}
+  .card-title h2{font-size:18px;margin:0}
+  dl{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:10px 14px;margin:0}
+  dt{color:var(--muted);font-size:14px;text-transform:lowercase}
+  dd{margin:0;font-size:18px;font-weight:700}
+  pre{white-space:pre-wrap;background:#f7f7f7;padding:10px;border-radius:6px;overflow:auto;margin:8px 0 0}
+  .small{font-size:13px;color:var(--muted)}
+  .metar-label{margin-top:14px}
+  .webcam img{display:block;width:100%;height:auto;border-radius:6px}
+  @media (max-width:640px){
+    main{padding:10px}
+    dl{grid-template-columns:1fr}
+    dd{font-size:16px}
+  }
+</style>
+</head>
+<body>
+<main>
+  <div id="banner" class="banner yellow">Ładowanie...</div>
+
+  <section class="card" id="flightCard">
+    <header class="card-title">
+      <h2>Panel lotu</h2>
+    </header>
+    <dl>
+      <dt>lot</dt><dd id="flightAircraft">FLI453</dd>
+      <dt>linia lotnicza</dt><dd id="flightAirline">-</dd>
+      <dt>status</dt><dd id="flightStatus">ładowanie</dd>
+      <dt>rzeczywisty odlot</dt><dd id="flightDepActual">-</dd>
+      <dt>szacowany przylot</dt><dd id="flightArrEstimated">-</dd>
+      <dt>ostatnia pozycja</dt><dd id="flightPosition">-</dd>
+      <dt>ostatnia aktualizacja</dt><dd id="flightUpdated">-</dd>
+    </dl>
+    <pre id="flightRaw" hidden></pre>
+  </section>
+
+  <section class="card" id="weatherCard">
+    <header class="card-title">
+      <h2>Panel pogody</h2>
+    </header>
+    <dl>
+      <dt>Widoczność</dt><dd id="weatherVisibility">-</dd>
+      <dt>Podstawa chmur</dt><dd id="weatherCeiling">-</dd>
+      <dt>Kategoria lotu</dt><dd id="weatherCategory">-</dd>
+      <dt>Ostatnia aktualizacja</dt><dd id="weatherUpdated">-</dd>
+    </dl>
+    <div class="small metar-label">Surowy METAR</div>
+    <pre id="metarRaw">Ładowanie METAR...</pre>
+  </section>
+
+  <section class="card webcam">
+    <header class="card-title">
+      <h2>Kamera</h2>
+    </header>
+    <img id="cam" src="https://webcam.fae.fo/image.jpg" alt="Kamera lotniska Vágar" />
+    <div class="small">Odświeżanie co 10 s</div>
+  </section>
+</main>
+
+<script>
+const TRACKED_FLIGHT = 'FLI453';
+const WEATHER_STATION = 'EKVG';
+
+const banner = document.getElementById('banner');
+const flightAircraft = document.getElementById('flightAircraft');
+const flightAirline = document.getElementById('flightAirline');
+const flightStatus = document.getElementById('flightStatus');
+const flightDepActual = document.getElementById('flightDepActual');
+const flightArrEstimated = document.getElementById('flightArrEstimated');
+const flightPosition = document.getElementById('flightPosition');
+const flightUpdated = document.getElementById('flightUpdated');
+const flightRaw = document.getElementById('flightRaw');
+const weatherVisibility = document.getElementById('weatherVisibility');
+const weatherCeiling = document.getElementById('weatherCeiling');
+const weatherCategory = document.getElementById('weatherCategory');
+const weatherUpdated = document.getElementById('weatherUpdated');
+const metarRaw = document.getElementById('metarRaw');
+const cam = document.getElementById('cam');
+let latestWeather = null;
+
+function setBanner(state, text){
+  banner.className = 'banner ' + state;
+  banner.textContent = text;
+}
+
+function formatTime(ts){
+  if(!ts) return '-';
+  return new Date(ts).toLocaleTimeString();
+}
+
+function formatNumber(value, suffix){
+  if(value == null || value === '' || Number.isNaN(Number(value))) return '-';
+  return `${Number(value).toLocaleString()} ${suffix}`;
+}
+
+function formatText(value){
+  return value == null || value === '' ? '-' : value;
+}
+
+function translateFlightStatus(status){
+  const normalized = String(status || '').toLowerCase();
+  if(normalized === 'en-route' || normalized === 'active') return 'w powietrzu';
+  if(normalized === 'scheduled') return 'zaplanowany';
+  if(normalized === 'landed') return 'wylądował';
+  if(normalized === 'cancelled' || normalized === 'canceled') return 'odwołany';
+  if(normalized === 'unknown' || !normalized) return 'nieznany';
+  return status;
+}
+
+async function fetchJson(url){
+  const resolvedUrl = new URL(url, window.location.href).href;
+  try{
+    const r = await fetch(url);
+    const statusText = `${r.status} ${r.statusText || ''}`.trim();
+    if(!r.ok) return {error: statusText, url: resolvedUrl, status: r.status};
+    return {data: await r.json(), url: resolvedUrl, status: r.status};
+  }catch(e){
+    return {error: String(e), url: resolvedUrl};
+  }
+}
+
+function parseVisibilityMeters(raw, visib){
+  const metricMatch = raw.match(/\b(\d{4})\b/);
+  if(metricMatch) return `${Number(metricMatch[1]).toLocaleString()} m`;
+  if(visib != null && !Number.isNaN(Number(visib))) {
+    return `${Math.round(Number(visib) * 1609).toLocaleString()} m`;
+  }
+  return '-';
+}
+
+function parseRvr(raw, runway){
+  const match = raw.match(new RegExp(`\\bR${runway}/(P|M)?(\\d{4})([UDN])?\\b`));
+  if(!match) return '-';
+  const prefix = match[1] === 'P' ? '+' : match[1] === 'M' ? '<' : '';
+  const trend = match[3] === 'U' ? ' ↑' : match[3] === 'D' ? ' ↓' : '';
+  return `${prefix}${Number(match[2]).toLocaleString()} m${trend}`;
+}
+
+function parseCeiling(weather){
+  const cloudCeilings = (weather.clouds || [])
+    .filter(cloud => ['BKN','OVC','VV'].includes(cloud.cover))
+    .map(cloud => Number(cloud.base))
+    .filter(base => !Number.isNaN(base));
+  if(cloudCeilings.length) return `${Math.min(...cloudCeilings).toLocaleString()} ft`;
+
+  const raw = weather.raw || '';
+  const match = raw.match(/\b(BKN|OVC|VV)(\d{3})\b/);
+  if(match) return `${Number(match[2]) * 100} ft`;
+  return '-';
+}
+
+async function refreshFlight(){
+  flightAircraft.textContent = TRACKED_FLIGHT;
+
+  const result = await fetchJson('/api/flight?flight_icao='+encodeURIComponent(TRACKED_FLIGHT));
+  if(result.error){
+    flightStatus.textContent = 'nieznany';
+    flightAirline.textContent = '-';
+    flightDepActual.textContent = '-';
+    flightArrEstimated.textContent = '-';
+    flightPosition.textContent = '-';
+    flightUpdated.textContent = formatTime(Date.now());
+    flightRaw.hidden = false;
+    flightRaw.textContent = `API lotu niedostępne: ${result.url} zwróciło błąd ${result.error}`;
+    setBanner('yellow', 'SAMOLOT DRUŻYNY: STATUS NIEZNANY');
+    return;
+  }
+
+  const flight = result.data || {};
+  const airborne = String(flight.status || '').toLowerCase() === 'en-route';
+  flightAircraft.textContent = flight.flightIcao || flight.callsign || TRACKED_FLIGHT;
+  flightAirline.textContent = formatText(flight.airlineName);
+  flightStatus.textContent = translateFlightStatus(flight.status);
+  flightDepActual.textContent = formatText(flight.depActual);
+  flightArrEstimated.textContent = formatText(flight.arrEstimated);
+  flightPosition.textContent = flight.lat && flight.lon ? `${flight.lat}, ${flight.lon}` : '-';
+  flightUpdated.textContent = formatTime(flight.ts || Date.now());
+  flightRaw.hidden = true;
+
+  if(airborne) {
+    setBanner('green', 'W POWIETRZU - KIERUNEK VÁGAR');
+  } else {
+    setBanner('yellow', 'SAMOLOT DRUŻYNY: NA ZIEMI W BERGEN');
+  }
+}
+
+async function refreshWeather(station=WEATHER_STATION){
+  const apiUrl = '/api/weather?station='+encodeURIComponent(station);
+  const result = await fetchJson(apiUrl);
+
+  if(result.error){
+    if(!latestWeather) {
+      metarRaw.textContent = `API pogody niedostępne: ${result.url} zwróciło błąd ${result.error}`;
+    }
+    return;
+  }
+
+  const weather = result.data || {};
+  latestWeather = weather;
+  const raw = weather.raw || '';
+  weatherVisibility.textContent = parseVisibilityMeters(raw, weather.visib);
+  weatherCeiling.textContent = parseCeiling(weather);
+  weatherCategory.textContent = weather.fltCat || '-';
+  weatherUpdated.textContent = formatTime(weather.ts || weather.reportTime || Date.now());
+  metarRaw.textContent = raw || 'Brak surowego METAR';
+}
+
+function refreshCam(){
+  cam.src = 'https://webcam.fae.fo/image.jpg?r=' + Date.now();
+}
+
+refreshFlight();
+refreshWeather();
+refreshCam();
+
+setInterval(refreshFlight, 120_000);
+setInterval(refreshWeather, 5 * 60_000);
+setInterval(refreshCam, 60_000);
+</script>
+</body>
+</html>
