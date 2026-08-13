@@ -11,6 +11,8 @@ const API_ENDPOINT = process.env.OPENSKY_API_URL || 'https://opensky-network.org
 const API_METHOD = 'GET';
 const DEFAULT_CALLSIGN = process.env.OPENSKY_CALLSIGN || process.env.ADSBFI_CALLSIGN || 'MLM712';
 const DEFAULT_ICAO24 = process.env.OPENSKY_ICAO24 || '4d2162';
+const UPSTREAM_TIMEOUT = 12000;
+const UPSTREAM_ATTEMPTS = 2;
 
 function getCallsign(req) {
   const requestUrl = new URL(req.url, 'http://localhost');
@@ -23,26 +25,39 @@ function getCallsign(req) {
   return callsign;
 }
 
+async function fetchWithRetry(url) {
+  let lastError;
+  for(let attempt = 1; attempt <= UPSTREAM_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT);
+    try {
+      const response = await fetch(url, {
+        method: API_METHOD,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'lech-live/1'
+        },
+        signal: controller.signal
+      });
+      if(response.status < 500 || attempt === UPSTREAM_ATTEMPTS) return response;
+      lastError = new Error(`upstream ${response.status}`);
+    } catch(error) {
+      lastError = error;
+      if(attempt === UPSTREAM_ATTEMPTS) throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+    console.warn(`[flight api] upstream attempt ${attempt} failed, retrying`, String(lastError));
+  }
+  throw lastError;
+}
+
 async function fetchFlightFromOpenSky(callsign) {
   const upstreamUrl = new URL(API_ENDPOINT);
   upstreamUrl.searchParams.set('icao24', DEFAULT_ICAO24);
   console.log(`[flight api] ${API_METHOD} ${upstreamUrl.href}`);
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  let response;
-  try {
-    response = await fetch(upstreamUrl.href, {
-      method: API_METHOD,
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'lech-live/1'
-      },
-      signal: controller.signal
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
+  const response = await fetchWithRetry(upstreamUrl.href);
 
   console.log(`[flight api] upstream response ${response.status} ${response.statusText || ''}`.trim());
   if(!response.ok) throw new Error(`upstream ${response.status} for ${upstreamUrl.href}`);
