@@ -4,6 +4,10 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Lech - Wyspy Owcze live</title>
+<script>
+  window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
 <style>
   :root{
     --bg:#f4f6f8;
@@ -26,6 +30,7 @@
   .card + .card{margin-top:12px}
   .card-title{border-bottom:1px solid var(--border);margin:-2px 0 14px;padding-bottom:10px}
   .card-title h2{font-size:18px;margin:0}
+  #flightCard.no-signal .card-title{margin:-16px -16px 14px;padding:14px 16px;border:0;border-radius:7px 7px 0 0;background:#ea7a16;color:#fff}
   dl{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:10px 14px;margin:0}
   dt{color:var(--muted);font-size:14px;text-transform:lowercase}
   dd{margin:0;font-size:18px;font-weight:700}
@@ -92,6 +97,7 @@ const TRACKED_FLIGHT = 'MLM712';
 const WEATHER_STATION = 'EKVG';
 
 const banner = document.getElementById('banner');
+const flightCard = document.getElementById('flightCard');
 const flightAircraft = document.getElementById('flightAircraft');
 const flightStatus = document.getElementById('flightStatus');
 const flightAirSpeed = document.getElementById('flightAirSpeed');
@@ -181,28 +187,40 @@ function parseCeiling(weather){
 
 async function refreshFlight(){
   flightAircraft.textContent = TRACKED_FLIGHT;
-  flightStatus.textContent = 'WYLĄDOWAŁ w FAO';
-  setBanner('green', 'WYLĄDOWAŁ w FAO');
 
   const result = await fetchJson('/api/flight?callsign='+encodeURIComponent(TRACKED_FLIGHT));
   if(result.error){
+    flightCard.classList.add('no-signal');
+    flightStatus.textContent = 'brak odpowiedzi ADS-B';
     flightAirSpeed.textContent = '-';
     flightAltitude.textContent = '-';
     flightPosition.textContent = '-';
     flightUpdated.textContent = formatTime(Date.now());
     flightRaw.hidden = false;
     flightRaw.textContent = `API lotu niedostępne: ${result.url} zwróciło błąd ${result.error}`;
+    setBanner('yellow', 'BRAK ODPOWIEDZI ADS-B');
     return;
   }
 
   const flight = result.data || {};
+  const airborne = String(flight.status || '').toLowerCase() === 'en-route';
+  const noSignal = flight.status === 'not-tracked' || flight.tracked === false;
+  flightCard.classList.toggle('no-signal', noSignal);
   flightAircraft.textContent = flight.flightIcao || flight.callsign || TRACKED_FLIGHT;
+  flightStatus.textContent = translateFlightStatus(flight.status);
   flightAirSpeed.textContent = formatNumber(flight.airSpeed ?? flight.groundSpeed, 'kt');
   flightAltitude.textContent = formatNumber(flight.altitude, 'ft');
   flightPosition.textContent = flight.lat && flight.lon ? `${flight.lat}, ${flight.lon}` : '-';
   flightUpdated.textContent = formatTime(flight.ts || Date.now());
   flightRaw.hidden = true;
 
+  if(noSignal) {
+    setBanner('yellow', 'BRAK AKTYWNEGO SYGNAŁU ADS-B');
+  } else if(airborne) {
+    setBanner('green', 'W POWIETRZU - KIERUNEK VÁGAR');
+  } else {
+    setBanner('yellow', 'SAMOLOT DRUŻYNY: STATUS NIEZNANY');
+  }
 }
 
 async function refreshWeather(station=WEATHER_STATION){
